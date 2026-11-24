@@ -218,6 +218,14 @@ class EchoAlgoConfig(GRPOAlgoConfig):
     filter: EchoFilterConfig | None = None
     """Optional user-supplied filter narrowing the role-selected tokens."""
 
+    require_rl_signal: bool = False
+    """Weight observations only on rollouts that also carry nonzero RL credit.
+    Echo's ce weights keep every rollout trainable, so a group whose rewards
+    are all equal survives zero-advantage pruning and takes a batch slot that
+    GRPO would refill with an informative group. Enabling this scores echo
+    after the group advantage, keeping the RL batch identical to GRPO's and
+    making echo a purely auxiliary loss."""
+
 
 class MaxRLAlgoConfig(BaseAlgoConfig):
     type: Literal["max_rl"] = "max_rl"

@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Callable
 import numpy as np
 
 from prime_rl.configs.algorithm import EchoAlgoConfig
+from prime_rl.orchestrator.algo.base import iter_trainable_traces
 from prime_rl.orchestrator.algo.grpo import GRPOAlgorithm
+from prime_rl.orchestrator.algo.routing import is_trainable
 from prime_rl.orchestrator.trajectories import iter_trainable_branches
 from prime_rl.utils.utils import import_object
 
@@ -31,13 +33,24 @@ class EchoAlgorithm(GRPOAlgorithm):
             for role in ("system", "user", "assistant", "tool")
             if (role_config := getattr(config.roles, role)) is not None
         }
+        self.require_rl_signal = config.require_rl_signal
         self.filter_fn: Callable[..., list[list[bool]]] | None = None
         if config.filter is not None:
             self.filter_fn = partial(import_object(config.filter.import_path), **config.filter.kwargs)
 
     async def score_episode(self, episode: vf.Episode) -> None:
+        if self.require_rl_signal:
+            return  # weighted in score_group, once advantages exist
         for trace in episode.traces:
             if not trace.has_error and trace.agent.trainable:
+                self._weight_observations(trace)
+
+    async def score_group(self, episodes: list[vf.Episode]) -> None:
+        await super().score_group(episodes)
+        if not self.require_rl_signal:
+            return
+        for _, trace in iter_trainable_traces(episodes):
+            if is_trainable(trace):
                 self._weight_observations(trace)
 
     def _weight_observations(self, trace: vf.Trace) -> None:

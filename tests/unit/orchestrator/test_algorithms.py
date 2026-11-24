@@ -496,3 +496,24 @@ def test_echo_filter_narrows_selection():
     episode = _two_turn_episode()
     with pytest.raises(ValueError, match="span the branch's tokens"):
         asyncio.run(_echo_algorithm(filter_fn=lambda trace: [[True] * 6]).score_episode(episode))
+
+
+def test_echo_require_rl_signal_skips_groups_without_advantage():
+    # Equal rewards give zero advantage. By default echo still weights the
+    # observation, which keeps the rollout trainable through ce; with
+    # require_rl_signal it stays unweighted, so zero-advantage pruning drops it
+    # exactly as under GRPO. A group with mixed rewards is weighted either way.
+    for require_rl_signal, rewards, weighted in [
+        (False, (1.0, 1.0), True),
+        (True, (1.0, 1.0), False),
+        (True, (1.0, 0.0), True),
+    ]:
+        algo = EchoAlgorithm(_build(type="echo", require_rl_signal=require_rl_signal), MagicMock())
+        episodes = [_two_turn_episode() for _ in rewards]
+        for episode, reward in zip(episodes, rewards, strict=True):
+            episode.ok = True
+            episode.traces[0].rewards = {"r": vf.Reward(score=reward)}
+            asyncio.run(algo.finalize_episode(episode))
+        asyncio.run(algo.score_group(episodes))
+        for episode in episodes:
+            assert (trace_to_samples(episode.traces[0])[0].ce_weights is not None) == weighted
